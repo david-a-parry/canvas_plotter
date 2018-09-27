@@ -148,8 +148,8 @@ def get_options():
     parser.add_argument("-o", "--output_directory", required=True,
                         help='''Directory to output plot images. Required.''')
     parser.add_argument("-p", "--ped", help='''Optional PED file for plotting
-                        samples with affected individuals above unaffected
-                        individuals.''')
+                        samples in the same family next to each other with
+                        affected individuals above unaffected individuals.''')
     parser.add_argument("-b", "--build", default='hg38',
                         help='''Genome build for plotting cytobands. A
                         cytoBandIdeo.txt.gz (as downloaded from

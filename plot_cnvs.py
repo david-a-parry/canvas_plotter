@@ -4,6 +4,9 @@ import os
 import re
 import logging
 import argparse
+import matplotlib
+if os.environ.get('DISPLAY','') == '':
+    matplotlib.use('Agg') #for headless servers
 import matplotlib.pyplot as plt
 from matplotlib.collections import BrokenBarHCollection
 import seaborn as sns

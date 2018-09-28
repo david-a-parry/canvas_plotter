@@ -61,7 +61,13 @@ def read_coverage(results_dir, samples=None):
                         "{} is not in provided PED file.".format(sample))
             continue
         f = os.path.join(results_dir, vis_tmp, "coverage.bedgraph")
-        logger.info("Reading {}".format(vis_tmp))
+        if not os.path.exists(f):
+            if os.path.exists(f + '.gz'):
+                f = f + '.gz'
+            else:
+                sys.exit("ERROR: No coverage.bedgraph file in " +
+                         "{}".format(vis_tmp))
+        logger.info("Reading {}".format(f))
         temp_df = pd.read_table(f, names=('Chrom', 'Start', 'End', 'Ploidy'))
         temp_df['Sample'] = sample
         df = pd.concat([df, temp_df])

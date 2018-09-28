@@ -8,6 +8,7 @@ import matplotlib
 if os.environ.get('DISPLAY','') == '':
     matplotlib.use('Agg') #for headless servers
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 from matplotlib.collections import BrokenBarHCollection
 import seaborn as sns
 import pandas as pd
@@ -118,7 +119,15 @@ def plot_samples(df, outdir, ideo, samples, fig_dimensions, ymax=6):
             axes[i + 1].axes.set_xlim((0, max(chr_df.End)))
             axes[i + 1].axes.set_ylim((-0.5, ymax))
             axes[i + 1].axes.set_title(s)
+            axes[i + 1].axes.set_ylabel('CN')
             i += 1
+            if i == len(samples):#add label for bottom plot
+                axes[i].axes.set_xlabel('Pos')
+                #make the position labels a bit prettier
+                axes[i].xaxis.set_major_formatter(
+                    mtick.FuncFormatter(lambda x, p: format(int(x), ',')))
+
+
         axes[0].set_title(chrom)
         axes[0].axis('tight')
         axes[0].tick_params(axis='both',

@@ -149,7 +149,7 @@ def get_region_from_record(record):
     return (start, end)
 
 def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
-                  ymax=6, filters=True):
+                  ymax=6, filters=False):
     if samples:
         s_uniq = df.Sample.unique()
         samples = [x for x in samples if x in s_uniq]
@@ -277,9 +277,10 @@ def sample_order_from_ped(pedfile):
 def get_options():
     parser = argparse.ArgumentParser(description='Plot Canvas CNV results.')
     parser.add_argument("-r", "--results_directory", required=True,
-                        help='''One or more results directories from a Canvas
-                        run. This program requires the 'VisualizationTemp...'
-                        directories produced by Canvas.''')
+                        help='''Results directory from a Canvas run. This
+                        program requires the 'VisualizationTemp...' directories
+                        produced by Canvas and optionally the 'CNV.vcf.gz' VCF
+                        file.''')
     parser.add_argument("-o", "--output_directory", required=True,
                         help='''Directory to output plot images. Required.''')
     parser.add_argument("-p", "--ped", help='''Optional PED file for plotting
@@ -289,7 +290,7 @@ def get_options():
                         help='''Only output variants from the CNV.vcf.gz in the
                         results directory with a de novo quality (DQ) equal to
                         or greater than this value.''')
-    parser.add_argument("--pass_filters", action='store_true',
+    parser.add_argument("--pass_filters", action='store_true', default=False,
                         help='''When outputting variant regions only output
                         those which PASS filters.''')
     parser.add_argument("-v", "--variants", action='store_true',

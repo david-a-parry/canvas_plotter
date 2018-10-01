@@ -13,6 +13,7 @@ from matplotlib.collections import BrokenBarHCollection
 import seaborn as sns
 import pandas as pd
 from vase.ped_file import PedFile
+from parse_vcf import VcfReader
 
 logger = logging.getLogger("CNV plotter")
 logger.setLevel(logging.INFO)
@@ -74,7 +75,7 @@ def read_coverage(results_dir, samples=None):
         df = pd.concat([df, temp_df])
     return df
 
-def plot_samples(df, outdir, ideo, samples, fig_dimensions, ymax=6):
+def plot_chromosomes(df, outdir, ideo, samples, fig_dimensions, ymax=6):
     if samples:
         s_uniq = df.Sample.unique()
         samples = [x for x in samples if x in s_uniq]
@@ -126,8 +127,6 @@ def plot_samples(df, outdir, ideo, samples, fig_dimensions, ymax=6):
                 #make the position labels a bit prettier
                 axes[i].xaxis.set_major_formatter(
                     mtick.FuncFormatter(lambda x, p: format(int(x), ',')))
-
-
         axes[0].set_title(chrom)
         axes[0].axis('tight')
         axes[0].tick_params(axis='both',
@@ -141,6 +140,124 @@ def plot_samples(df, outdir, ideo, samples, fig_dimensions, ymax=6):
                             labelcolor='white')
         fig.savefig(png)
         plt.close('all')
+
+def get_region_from_record(record):
+    l = record.SPAN - record.POS
+    padding = int(max(1000, l/5))
+    start = record.POS - padding
+    end = record.SPAN + padding
+    return (start, end)
+
+def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
+                  ymax=6, filters=True):
+    if samples:
+        s_uniq = df.Sample.unique()
+        samples = [x for x in samples if x in s_uniq]
+    else:
+        samples = list(df.Sample.unique())
+    if not samples:
+        sys.exit("No data to process! Please check that your results " +
+                 "directory is not empty and if using a PED file that your " +
+                 "PED file and results directory contain at least one " +
+                 "overlapping sample.")
+    vreader = VcfReader(vcf)
+    region_name = None
+    prev_chrom = None
+    for record in vreader:
+        if record.ALT == '.':
+            continue
+        if filters and record.FILTER != 'PASS':
+            continue
+        (start, end) = get_region_from_record(record)
+        alt = record.ALT.replace("<", "").replace(">", "")
+        if dq is not None:
+            gts = record.parsed_gts(fields=['DQ'])
+            dqs = [x for x in gts['DQ'].values() if x is not None and x >= dq]
+            if not dqs:
+                continue
+            region_name = "DQ_{}_{}_{}_{}_{}".format("/".join((str(x) for x in
+                                                               dqs)),
+                                                     record.CHROM,
+                                                     record.POS,
+                                                     record.SPAN,
+                                                     alt)
+        else:
+            region_name = "{}_{}_{}_{}".format(record.CHROM, record.POS,
+                                            record.SPAN, alt)
+        if prev_chrom is None or record.CHROM != prev_chrom:
+            chr_df = df[df.Chrom == record.CHROM]
+            chr_ideo = ideo[(ideo.chrom == record.CHROM)]
+        var_span = (record.POS, record.SPAN)
+        plot_region(df=chr_df, chrom=record.CHROM, start=start, end=end,
+                    outdir=outdir, ideo=chr_ideo, samples=samples,
+                    name=region_name, ymax=ymax, fig_dimensions=fig_dimensions,
+                    roi=var_span)
+
+def plot_region(df, chrom, start, end, outdir, ideo, samples, fig_dimensions,
+                ymax=6, name=None, roi=None):
+    cols = sns.color_palette("colorblind", len(samples))
+    region = "{}:{}-{}".format(chrom, start, end)
+    name = name if name else region
+    logger.info("Plotting region " + name)
+    png = os.path.join(outdir, name + '.png')
+    fig, axes = plt.subplots(nrows=1 + len(samples),
+                             ncols=1,
+                             sharex=True,
+                             gridspec_kw={'height_ratios':[1] + [8] *
+                                                          len(samples),
+                                          'hspace': 0.4},
+                             figsize=fig_dimensions)
+    reg_df = df[(df.Start >= start) & (df.Start <= end)]
+    if ideo is not None:
+        reg_ideo = ideo[(ideo.start >= start) & (ideo.start < end)]
+        axes[0].add_collection(BrokenBarHCollection(
+            reg_ideo[['start', 'width']].values,
+            (0, 1),
+            facecolors=reg_ideo['colors']))
+        axes[0].axes.set_xlim((start, end))
+        axes[0].axes.set_ylim((0.1, 1))
+    i = 0
+    for s in samples:
+        tmp_df = reg_df[reg_df.Sample == s]
+        alpha = min(50000.0/len(tmp_df), 0.5)
+        size = min(10000.0/len(tmp_df), 100)
+        axes[i + 1].scatter(tmp_df.Start, tmp_df.Ploidy, color=cols[i],
+                            alpha=alpha, s=[size] * len(tmp_df))
+        axes[i + 1].plot([start, end],
+                         [2.0, 2.0 ],
+                         '--',
+                         color='black',
+                         alpha=0.4)
+        if roi:
+            axes[i + 1].plot([roi[0], roi[1]],
+                             [ymax-0.5, ymax-0.5],
+                             '-',
+                             color='red',
+                             alpha=0.8)
+        axes[i + 1].axes.set_xlim((start, end))
+        axes[i + 1].axes.set_ylim((-0.5, ymax))
+        axes[i + 1].axes.set_title(s)
+        axes[i + 1].axes.set_ylabel('CN')
+        i += 1
+        if i == len(samples):#add label for bottom plot
+            axes[i].axes.set_xlabel('Pos')
+            #make the position labels a bit prettier
+            axes[i].xaxis.set_major_formatter(
+                mtick.FuncFormatter(lambda x, p: format(int(x), ',')))
+    axes[0].set_title(chrom)
+    axes[0].tick_params(axis='both',
+                        which='both',
+                        bottom=False,
+                        top=False,
+                        left=False,
+                        right=False,
+                        labelbottom=False,
+                        labelleft=False,
+                        labelcolor='white')
+    fig.savefig(png)
+    plt.close('all')
+
+
 
 def sample_order_from_ped(pedfile):
     samples = []
@@ -168,6 +285,17 @@ def get_options():
     parser.add_argument("-p", "--ped", help='''Optional PED file for plotting
                         samples in the same family next to each other with
                         affected individuals above unaffected individuals.''')
+    parser.add_argument("-d", "--dq", type=float,
+                        help='''Only output variants from the CNV.vcf.gz in the
+                        results directory with a de novo quality (DQ) equal to
+                        or greater than this value.''')
+    parser.add_argument("--pass_filters", action='store_true',
+                        help='''When outputting variant regions only output
+                        those which PASS filters.''')
+    parser.add_argument("-v", "--variants", action='store_true',
+                        help='''Output regions with a variant (as shown in the
+                        CNV.vcf.gz file in the results directory) rather than
+                        whole chromosomes.''')
     parser.add_argument("-b", "--build", default='hg38',
                         help='''Genome build for plotting cytobands. A
                         cytoBandIdeo.txt.gz (as downloaded from
@@ -178,7 +306,7 @@ def get_options():
                         help="Figure height in inches. Default=12.")
     parser.add_argument("--width", type=float, default=18,
                         help="Figure width in inches. Default=18.")
-    parser.add_argument("--context", default='paper', 
+    parser.add_argument("--context", default='paper',
                         help='''Figure context to use. Can be set to any of the
                         seaborn plotting contexts ("notebook", "paper", "talk",
                         or "poster"). Default="paper".''')
@@ -187,8 +315,9 @@ def get_options():
                         Default=6.0.''')
     return parser
 
-def main(results_directory, output_directory, ped=None, height=18, width=12,
-         context='paper', build='hg38', ymax=6.0):
+def main(results_directory, output_directory, ped=None, variants=False,
+         pass_filters=False, dq=None,  height=18, width=12, context='paper',
+         build='hg38', ymax=6.0):
     if os.path.exists(output_directory):
         logger.info("Using existing directory '{}'".format(output_directory))
     else:
@@ -202,7 +331,15 @@ def main(results_directory, output_directory, ped=None, height=18, width=12,
         logger.info("Getting samples from PED")
         samples = sample_order_from_ped(ped)
     df = read_coverage(results_directory, samples)
-    plot_samples(df, output_directory, cyto, samples, fig_dimensions, ymax)
+    if variants or dq:
+
+        vcf = os.path.join(results_directory, "CNV.vcf.gz")
+        plot_variants(df=df, vcf=vcf, outdir=output_directory, samples=samples,
+                      ideo=cyto, ymax=ymax, dq=dq,
+                      fig_dimensions=fig_dimensions)
+    else:
+        plot_chromosomes(df, output_directory, cyto, samples, fig_dimensions,
+                         ymax)
 
 if __name__ == '__main__':
     argparser = get_options()

@@ -337,7 +337,7 @@ def main(results_directories, output_directory, ped=None, variants=False,
     df = pd.DataFrame()
     for results_directory in results_directories:
         df = pd.concat((df, read_coverage(results_directory, samples)))
-    if variants or vcf or dq:
+    if variants or vcfs or dq:
         if not vcfs:
             vcfs = [os.path.join(rd, "CNV.vcf.gz") for rd in
                     results_directories]

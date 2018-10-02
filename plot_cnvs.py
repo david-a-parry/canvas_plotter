@@ -276,7 +276,7 @@ def sample_order_from_ped(pedfile):
 
 def get_options():
     parser = argparse.ArgumentParser(description='Plot Canvas CNV results.')
-    parser.add_argument("-r", "--results_directory", required=True,
+    parser.add_argument("-r", "--results_directories", nargs='+', required=True,
                         help='''Results directory from a Canvas run. This
                         program requires the 'VisualizationTemp...' directories
                         produced by Canvas and optionally the 'CNV.vcf.gz' VCF
@@ -296,7 +296,10 @@ def get_options():
     parser.add_argument("-v", "--variants", action='store_true',
                         help='''Output regions with a variant (as shown in the
                         CNV.vcf.gz file in the results directory) rather than
-                        whole chromosomes.''')
+                        whole chromosomes. Use --vcf argument to use a
+                        different VCF file.''')
+    parser.add_argument("--vcfs", nargs='+', help='''Output variant regions in
+                        this/these VCF file(s).''')
     parser.add_argument("-b", "--build", default='hg38',
                         help='''Genome build for plotting cytobands. A
                         cytoBandIdeo.txt.gz (as downloaded from
@@ -316,9 +319,9 @@ def get_options():
                         Default=6.0.''')
     return parser
 
-def main(results_directory, output_directory, ped=None, variants=False,
-         pass_filters=False, dq=None,  height=18, width=12, context='paper',
-         build='hg38', ymax=6.0):
+def main(results_directories, output_directory, ped=None, variants=False,
+         vcfs=[], pass_filters=False, dq=None,  height=18, width=12,
+         context='paper', build='hg38', ymax=6.0):
     if os.path.exists(output_directory):
         logger.info("Using existing directory '{}'".format(output_directory))
     else:
@@ -331,13 +334,16 @@ def main(results_directory, output_directory, ped=None, variants=False,
     if ped is not None:
         logger.info("Getting samples from PED")
         samples = sample_order_from_ped(ped)
-    df = read_coverage(results_directory, samples)
-    if variants or dq:
-
-        vcf = os.path.join(results_directory, "CNV.vcf.gz")
-        plot_variants(df=df, vcf=vcf, outdir=output_directory, samples=samples,
-                      ideo=cyto, ymax=ymax, dq=dq,
-                      fig_dimensions=fig_dimensions)
+    for results_directory in results_directories:
+        df = pd.concat((df, read_coverage(results_directory, samples)))
+    if variants or vcf or dq:
+        if not vcfs:
+            vcfs = [os.path.join(rd, "CNV.vcf.gz") for rd in
+                    results_directories]
+        for vcf in vcfs:
+            plot_variants(df=df, vcf=vcf, outdir=output_directory,
+                          samples=samples, ideo=cyto, ymax=ymax, dq=dq,
+                          fig_dimensions=fig_dimensions)
     else:
         plot_chromosomes(df, output_directory, cyto, samples, fig_dimensions,
                          ymax)

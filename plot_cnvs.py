@@ -54,7 +54,7 @@ def get_cytobands(build):
 
 def read_coverage(results_dir, samples=None):
     df = pd.DataFrame()
-    logger.info("Reading coverage files")
+    logger.info("Reading coverage files in {}".format(results_dir))
     for vis_tmp in [d for d in os.listdir(results_dir) if
                     d.startswith('VisualizationTemp')]:
         sample = vis_tmp.replace('VisualizationTemp', '')
@@ -334,6 +334,7 @@ def main(results_directories, output_directory, ped=None, variants=False,
     if ped is not None:
         logger.info("Getting samples from PED")
         samples = sample_order_from_ped(ped)
+    df = pd.DataFrame()
     for results_directory in results_directories:
         df = pd.concat((df, read_coverage(results_directory, samples)))
     if variants or vcf or dq:

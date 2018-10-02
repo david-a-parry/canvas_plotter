@@ -143,7 +143,7 @@ def plot_chromosomes(df, outdir, ideo, samples, fig_dimensions, ymax=6):
 
 def get_region_from_record(record):
     l = record.SPAN - record.POS
-    padding = int(max(1000, l/5))
+    padding = int(max(5000, l))
     start = record.POS - padding
     end = record.SPAN + padding
     return (start, end)

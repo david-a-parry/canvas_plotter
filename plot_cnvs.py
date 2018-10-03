@@ -13,6 +13,7 @@ import matplotlib.ticker as mtick
 from matplotlib.collections import BrokenBarHCollection
 import seaborn as sns
 import pandas as pd
+import het_plotter.plot_heterozygosity as het_counts
 from vase.ped_file import PedFile
 from parse_vcf import VcfReader
 
@@ -78,7 +79,8 @@ def read_coverage(results_dir, samples=None, chrom=None):
         df = pd.concat([df, temp_df])
     return df
 
-def plot_chromosomes(df, outdir, ideo, samples, fig_dimensions, ymax=6):
+def plot_chromosomes(df, outdir, ideo, samples, fig_dimensions, ymax=6,
+                     het_vcf=None, window_length=1e5):
     if samples:
         s_uniq = df.Sample.unique()
         samples = [x for x in samples if x in s_uniq]
@@ -91,15 +93,24 @@ def plot_chromosomes(df, outdir, ideo, samples, fig_dimensions, ymax=6):
                  "overlapping sample.")
     cols = sns.color_palette("colorblind", len(samples))
     for chrom in df.Chrom.unique():
+        pan_per_sample = 1
+        het_df = None
+        if het_vcf is not None:
+            logger.info("Getting heterzoygosity counts for chromosome " +
+                        "{}".format(chrom))
+            gt_counts = het_counts.get_gt_counts(het_vcf, samples, chrom,
+                                                 logger=logger, plot=False)
+            het_df = het_counts.counts_to_df(gt_counts, window_length)
+            pan_per_sample = 2
         logger.info("Plotting chromosome {}".format(chrom))
         png = os.path.join(outdir, chrom + '.png')
         chr_df = df[df.Chrom == chrom]
         i = 0
-        fig, axes = plt.subplots(nrows=1 + len(samples),
+        fig, axes = plt.subplots(nrows=1 + (pan_per_sample * len(samples)),
                                  ncols=1,
                                  sharex=True,
                                  gridspec_kw={'height_ratios':[1] + [8] *
-                                                              len(samples),
+                                              (pan_per_sample * len(samples)),
                                               'hspace': 0.4},
                                  figsize=fig_dimensions)
         if ideo is not None:
@@ -111,25 +122,34 @@ def plot_chromosomes(df, outdir, ideo, samples, fig_dimensions, ymax=6):
             axes[0].axes.set_xlim((0, max(chr_df.End)))
             axes[0].axes.set_ylim((0.1, 1))
         for s in samples:
+            row = i * pan_per_sample + 1
             tmp_df = chr_df[chr_df.Sample == s]
             alpha = min(50000.0/len(tmp_df), 0.5)
-            axes[i + 1].scatter(tmp_df.Start, tmp_df.Ploidy, color=cols[i],
+            axes[row].scatter(tmp_df.Start, tmp_df.Ploidy, color=cols[i],
                         alpha=alpha, s=[0.1] * len(tmp_df))
-            axes[i + 1].plot([chr_df.Start.min(), chr_df.Start.max()],
+            axes[row].plot([chr_df.Start.min(), chr_df.Start.max()],
                              [2.0, 2.0 ],
                              '--',
                              color='black',
                              alpha=0.4)
-            axes[i + 1].axes.set_xlim((0, max(chr_df.End)))
-            axes[i + 1].axes.set_ylim((-0.5, ymax))
-            axes[i + 1].axes.set_title(s)
-            axes[i + 1].axes.set_ylabel('CN')
-            i += 1
-            if i == len(samples):#add label for bottom plot
-                axes[i].axes.set_xlabel('Pos')
+            axes[row].axes.set_ylim((-0.5, ymax))
+            axes[row].axes.set_xlim((0, max(chr_df.End)))
+            axes[row].axes.set_title(s)
+            axes[row].axes.set_ylabel('CN')
+            if het_df is not None:
+                samp_df = het_df[het_df.sample_id == s]
+                axes[row + 1].plot(samp_df['pos'], samp_df['het'], '-.',
+                                   color=cols[i])
+                axes[row + 1].axis('tight')
+                axes[row + 1].axes.set_xlim((0, max(chr_df.End)))
+                axes[row + 1].axes.set_ylabel('Fraction Heterozygosity')
+                axes[row].axes.set_ylim((-0.5, 1.0))
+            if row == len(samples) * pan_per_sample:#add label for bottom plot
+                axes[row].axes.set_xlabel('Pos')
                 #make the position labels a bit prettier
-                axes[i].xaxis.set_major_formatter(
+                axes[row].xaxis.set_major_formatter(
                     mtick.FuncFormatter(lambda x, p: format(int(x), ',')))
+            i += 1
         axes[0].set_title(chrom)
         axes[0].axis('tight')
         axes[0].tick_params(axis='both',
@@ -152,7 +172,8 @@ def get_region_from_record(record):
     return (start, end)
 
 def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
-                  ymax=6, filters=False, chrom=None):
+                  ymax=6, filters=False, chrom=None, het_vcf=None,
+                  window_length=1e5):
     if samples:
         s_uniq = df.Sample.unique()
         samples = [x for x in samples if x in s_uniq]
@@ -168,6 +189,7 @@ def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
         vreader.set_region(chrom=chrom)
     region_name = None
     prev_chrom = None
+    het_df = None
     for record in vreader:
         if record.ALT == '.':
             continue
@@ -192,24 +214,33 @@ def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
         if prev_chrom is None or record.CHROM != prev_chrom:
             chr_df = df[df.Chrom == record.CHROM]
             chr_ideo = ideo[(ideo.chrom == record.CHROM)]
+            if het_vcf is not None:
+                logger.info("Getting heterzoygosity counts for chromosome " +
+                            "{}".format(record.CHROM))
+                gt_counts = het_counts.get_gt_counts(het_vcf, samples,
+                                                     record.CHROM,
+                                                     logger=logger, plot=False)
+                het_df = het_counts.counts_to_df(gt_counts, window_length)
+            prev_chrom = record.CHROM
         var_span = (record.POS, record.SPAN)
         plot_region(df=chr_df, chrom=record.CHROM, start=start, end=end,
                     outdir=outdir, ideo=chr_ideo, samples=samples,
                     name=region_name, ymax=ymax, fig_dimensions=fig_dimensions,
-                    roi=var_span)
+                    roi=var_span, het_df=het_df)
 
 def plot_region(df, chrom, start, end, outdir, ideo, samples, fig_dimensions,
-                ymax=6, name=None, roi=None):
+                ymax=6, name=None, roi=None, het_df=None):
     cols = sns.color_palette("colorblind", len(samples))
     region = "{}:{}-{}".format(chrom, start, end)
     name = name if name else region
     logger.info("Plotting region " + name)
     png = os.path.join(outdir, name + '.png')
-    fig, axes = plt.subplots(nrows=1 + len(samples),
+    pan_per_sample = 1 if het_df is None else 2
+    fig, axes = plt.subplots(nrows=1 + (pan_per_sample * len(samples)),
                              ncols=1,
                              sharex=True,
                              gridspec_kw={'height_ratios':[1] + [8] *
-                                                          len(samples),
+                                          (pan_per_sample * len(samples)),
                                           'hspace': 0.4},
                              figsize=fig_dimensions)
     reg_df = df[(df.Start >= start) & (df.Start <= end)]
@@ -223,31 +254,41 @@ def plot_region(df, chrom, start, end, outdir, ideo, samples, fig_dimensions,
         axes[0].axes.set_ylim((0.1, 1))
     i = 0
     for s in samples:
+        row = i * pan_per_sample + 1
         tmp_df = reg_df[reg_df.Sample == s]
         alpha = min(50000.0/len(tmp_df), 0.5)
         size = min(10000.0/len(tmp_df), 100)
-        axes[i + 1].scatter(tmp_df.Start, tmp_df.Ploidy, color=cols[i],
+        axes[row].scatter(tmp_df.Start, tmp_df.Ploidy, color=cols[i],
                             alpha=alpha, s=[size] * len(tmp_df))
-        axes[i + 1].plot([start, end],
+        axes[row].plot([start, end],
                          [2.0, 2.0 ],
                          '--',
                          color='black',
                          alpha=0.4)
         if roi:
-            axes[i + 1].plot([roi[0], roi[1]],
+            axes[row].plot([roi[0], roi[1]],
                              [ymax-0.5, ymax-0.5],
                              '-',
                              color='red',
                              alpha=0.8)
-        axes[i + 1].axes.set_xlim((start, end))
-        axes[i + 1].axes.set_ylim((-0.5, ymax))
-        axes[i + 1].axes.set_title(s)
-        axes[i + 1].axes.set_ylabel('CN')
+        axes[row].axes.set_xlim((start, end))
+        axes[row].axes.set_ylim((-0.5, ymax))
+        axes[row].axes.set_title(s)
+        axes[row].axes.set_ylabel('CN', rotation='horizontal', ha='right')
+        if het_df is not None:
+            samp_df = het_df[(het_df.sample_id == s) & (het_df.pos >= start) &
+                             (het_df.pos <= end)]
+            axes[row + 1].plot(samp_df['pos'], samp_df['het'], '-.',
+                               color=cols[i])
+            axes[row + 1].axes.set_xlim((start, end))
+            axes[row + 1].axes.set_ylabel('Het', rotation='horizontal',
+                                          ha='right')
+            axes[row].axes.set_ylim((-0.5, 1.0))
         i += 1
-        if i == len(samples):#add label for bottom plot
-            axes[i].axes.set_xlabel('Pos')
+        if row == len(samples) * pan_per_sample:#add label for bottom plot
+            axes[row].axes.set_xlabel('Pos')
             #make the position labels a bit prettier
-            axes[i].xaxis.set_major_formatter(
+            axes[row].xaxis.set_major_formatter(
                 mtick.FuncFormatter(lambda x, p: format(int(x), ',')))
     axes[0].set_title(chrom)
     axes[0].tick_params(axis='both',
@@ -311,6 +352,9 @@ def get_options():
                         http://genome.ucsc.edu) must be present in the
                         'data/<build>/' subdirectory or no ideograms will be
                         drawn. Default=hg38.''')
+    parser.add_argument("-z", "--zygosity", metavar='VCF',
+                        help='''Also plot heterozygosity for each sample using
+                        variants in this VCF file.''')
     parser.add_argument("--height", type=float,default=12,
                         help="Figure height in inches. Default=12.")
     parser.add_argument("--width", type=float, default=18,
@@ -331,7 +375,7 @@ def get_options():
 
 def process_data(results_directories, output_directory, cyto, samples,
                  variants, vcfs, pass_filters, dq, fig_dimensions, context,
-                 ymax, chrom=None):
+                 ymax, chrom=None, het_vcf=None):
     df = pd.DataFrame()
     for results_directory in results_directories:
         df = pd.concat((df, read_coverage(results_directory, samples, chrom)))
@@ -342,10 +386,12 @@ def process_data(results_directories, output_directory, cyto, samples,
         for vcf in vcfs:
             plot_variants(df=df, vcf=vcf, outdir=output_directory,
                           samples=samples, ideo=cyto, ymax=ymax, dq=dq,
-                          fig_dimensions=fig_dimensions, chrom=chrom)
+                          fig_dimensions=fig_dimensions, chrom=chrom,
+                          het_vcf=het_vcf)
     else:
-        plot_chromosomes(df, output_directory, cyto, samples, fig_dimensions,
-                         ymax)
+        plot_chromosomes(df=df, outdir=output_directory, ideo=cyto,
+                         samples=samples, fig_dimensions=fig_dimensions,
+                         ymax=ymax, het_vcf=het_vcf)
 
 def get_chroms(results_dirs):
     logger.info("Checking chromosomes in coverage files...")
@@ -382,8 +428,9 @@ def get_chroms(results_dirs):
 
 
 def main(results_directories, output_directory, ped=None, variants=False,
-         vcfs=[], pass_filters=False, dq=None,  height=18, width=12,
-         context='paper', build='hg38', ymax=6.0, separate_chromosomes=False):
+         vcfs=[], pass_filters=False, dq=None, zygosity=None, height=18,
+         width=12, context='paper', build='hg38', ymax=6.0,
+         separate_chromosomes=False):
     if os.path.exists(output_directory):
         logger.info("Using existing directory '{}'".format(output_directory))
     else:
@@ -398,13 +445,32 @@ def main(results_directories, output_directory, ped=None, variants=False,
         samples = sample_order_from_ped(ped)
     if separate_chromosomes:
         for c in sorted(get_chroms(results_directories)):
-            process_data(results_directories, output_directory, cyto, samples,
-                         variants, vcfs, pass_filters, dq, fig_dimensions,
-                         context, ymax, c)
+                process_data(results_directories=results_directories,
+                             output_directory=output_directory,
+                             cyto=cyto,
+                             samples=samples,
+                             variants=variants,
+                             vcfs=vcfs,
+                             pass_filters=pass_filters,
+                             dq=dq,
+                             fig_dimensions=fig_dimensions,
+                             context=context,
+                             ymax=ymax,
+                             het_vcf=zygosity,
+                             chrom=c)
     else:
-        process_data(results_directories, output_directory, cyto, samples,
-                     variants, vcfs, pass_filters, dq, fig_dimensions, context,
-                     ymax)
+        process_data(results_directories=results_directories,
+                     output_directory=output_directory,
+                     cyto=cyto,
+                     samples=samples,
+                     variants=variants,
+                     vcfs=vcfs,
+                     pass_filters=pass_filters,
+                     dq=dq,
+                     fig_dimensions=fig_dimensions,
+                     context=context,
+                     ymax=ymax,
+                     het_vcf=zygosity)
 
 if __name__ == '__main__':
     argparser = get_options()

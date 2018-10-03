@@ -397,7 +397,7 @@ def main(results_directories, output_directory, ped=None, variants=False,
         logger.info("Getting samples from PED")
         samples = sample_order_from_ped(ped)
     if separate_chromosomes:
-        for c in get_chroms(results_directories):
+        for c in sorted(get_chroms(results_directories)):
             process_data(results_directories, output_directory, cyto, samples,
                          variants, vcfs, pass_filters, dq, fig_dimensions,
                          context, ymax, c)

@@ -2,6 +2,7 @@
 import sys
 import os
 import re
+import gzip
 import logging
 import argparse
 import matplotlib
@@ -52,7 +53,7 @@ def get_cytobands(build):
                     "place in the directory {}".format(refdir))
     return None
 
-def read_coverage(results_dir, samples=None):
+def read_coverage(results_dir, samples=None, chrom=None):
     df = pd.DataFrame()
     logger.info("Reading coverage files in {}".format(results_dir))
     for vis_tmp in [d for d in os.listdir(results_dir) if
@@ -71,6 +72,8 @@ def read_coverage(results_dir, samples=None):
                          "{}".format(vis_tmp))
         logger.info("Reading {}".format(f))
         temp_df = pd.read_table(f, names=('Chrom', 'Start', 'End', 'Ploidy'))
+        if chrom:
+            temp_df = temp_df[temp_df.Chrom == chrom]
         temp_df['Sample'] = sample
         df = pd.concat([df, temp_df])
     return df
@@ -149,7 +152,7 @@ def get_region_from_record(record):
     return (start, end)
 
 def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
-                  ymax=6, filters=False):
+                  ymax=6, filters=False, chrom=None):
     if samples:
         s_uniq = df.Sample.unique()
         samples = [x for x in samples if x in s_uniq]
@@ -161,6 +164,8 @@ def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
                  "PED file and results directory contain at least one " +
                  "overlapping sample.")
     vreader = VcfReader(vcf)
+    if chrom is not None:
+        vreader.set_region(chrom=chrom)
     region_name = None
     prev_chrom = None
     for record in vreader:
@@ -317,11 +322,68 @@ def get_options():
     parser.add_argument("--ymax", type=float, default=6.0,
                         help='''Maximium limit of the y-scale for plots.
                         Default=6.0.''')
+    parser.add_argument("-s", "--separate_chromosomes", action='store_true',
+                        help='''If memory is limiting or processing many
+                        samples at once, use this flag to only read in one
+                        chromosome worth of data at a time (resulting in longer
+                        runtimes).''')
     return parser
+
+def process_data(results_directories, output_directory, cyto, samples,
+                 variants, vcfs, pass_filters, dq, fig_dimensions, context,
+                 ymax, chrom=None):
+    df = pd.DataFrame()
+    for results_directory in results_directories:
+        df = pd.concat((df, read_coverage(results_directory, samples, chrom)))
+    if variants or vcfs or dq:
+        if not vcfs:
+            vcfs = [os.path.join(rd, "CNV.vcf.gz") for rd in
+                    results_directories]
+        for vcf in vcfs:
+            plot_variants(df=df, vcf=vcf, outdir=output_directory,
+                          samples=samples, ideo=cyto, ymax=ymax, dq=dq,
+                          fig_dimensions=fig_dimensions, chrom=chrom)
+    else:
+        plot_chromosomes(df, output_directory, cyto, samples, fig_dimensions,
+                         ymax)
+
+def get_chroms(results_dirs):
+    logger.info("Checking chromosomes in coverage files...")
+    have_chr = False
+    no_chr = False
+    chroms = set()
+    for rdir in results_dirs:
+        for vis_tmp in [d for d in os.listdir(rdir) if
+                        d.startswith('VisualizationTemp')]:
+            o_func = open
+            f = os.path.join(rdir, vis_tmp, "coverage.bedgraph")
+            if not os.path.exists(f):
+                if os.path.exists(f + '.gz'):
+                    f = f + '.gz'
+                    o_func = gzip.open
+                else:
+                    sys.exit("ERROR: No coverage.bedgraph file in " +
+                             "{}".format(vis_tmp))
+                logger.info("Checking {}".format(f))
+                with o_func(f, 'rt') as infile:
+                    for line in infile:
+                        c = line.split()[0]
+                        if c.startswith("chr"):
+                            have_chr = True
+                        else:
+                            no_chr = True
+                        if have_chr and no_chr:
+                            sys.exit("ERROR: mixed chromosome types in coverage " +
+                                     "files - some chromosomes begin 'chr' while" +
+                                     " others do not. Please only use with data " +
+                                     "from the same reference.")
+                        chroms.add(c)
+    return chroms
+
 
 def main(results_directories, output_directory, ped=None, variants=False,
          vcfs=[], pass_filters=False, dq=None,  height=18, width=12,
-         context='paper', build='hg38', ymax=6.0):
+         context='paper', build='hg38', ymax=6.0, separate_chromosomes=False):
     if os.path.exists(output_directory):
         logger.info("Using existing directory '{}'".format(output_directory))
     else:
@@ -334,20 +396,15 @@ def main(results_directories, output_directory, ped=None, variants=False,
     if ped is not None:
         logger.info("Getting samples from PED")
         samples = sample_order_from_ped(ped)
-    df = pd.DataFrame()
-    for results_directory in results_directories:
-        df = pd.concat((df, read_coverage(results_directory, samples)))
-    if variants or vcfs or dq:
-        if not vcfs:
-            vcfs = [os.path.join(rd, "CNV.vcf.gz") for rd in
-                    results_directories]
-        for vcf in vcfs:
-            plot_variants(df=df, vcf=vcf, outdir=output_directory,
-                          samples=samples, ideo=cyto, ymax=ymax, dq=dq,
-                          fig_dimensions=fig_dimensions)
+    if separate_chromosomes:
+        for c in get_chroms(results_directories):
+            process_data(results_directories, output_directory, cyto, samples,
+                         variants, vcfs, pass_filters, dq, fig_dimensions,
+                         context, ymax, c)
     else:
-        plot_chromosomes(df, output_directory, cyto, samples, fig_dimensions,
-                         ymax)
+        process_data(results_directories, output_directory, cyto, samples,
+                     variants, vcfs, pass_filters, dq, fig_dimensions, context,
+                     ymax)
 
 if __name__ == '__main__':
     argparser = get_options()

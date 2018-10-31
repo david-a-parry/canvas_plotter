@@ -4,6 +4,7 @@ import os
 import re
 import gzip
 import logging
+import operator
 import argparse
 import matplotlib
 if os.environ.get('DISPLAY','') == '':
@@ -25,6 +26,8 @@ formatter = logging.Formatter(
        '[%(asctime)s] %(name)s - %(levelname)s - %(message)s')
 ch.setFormatter(formatter)
 logger.addHandler(ch)
+
+reg_matcher = re.compile(r'''^((chr)?\S):(\d+)-(\d+)$''')
 
 def get_cytobands(build):
     refdir = os.path.join(os.path.dirname(__file__), 'data', build)
@@ -81,16 +84,7 @@ def read_coverage(results_dir, samples=None, chrom=None):
 
 def plot_chromosomes(df, outdir, ideo, samples, fig_dimensions, ymax=6,
                      het_vcf=None, window_length=1e5):
-    if samples:
-        s_uniq = df.Sample.unique()
-        samples = [x for x in samples if x in s_uniq]
-    else:
-        samples = list(df.Sample.unique())
-    if not samples:
-        sys.exit("No data to process! Please check that your results " +
-                 "directory is not empty and if using a PED file that your " +
-                 "PED file and results directory contain at least one " +
-                 "overlapping sample.")
+    samples = check_samples_in_df(df, samples)
     cols = sns.color_palette("colorblind", len(samples))
     for chrom in df.Chrom.unique():
         pan_per_sample = 1
@@ -171,9 +165,7 @@ def get_region_from_record(record):
     end = record.SPAN + padding
     return (start, end)
 
-def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
-                  ymax=6, filters=False, chrom=None, het_vcf=None,
-                  window_length=1e5):
+def check_samples_in_df(df, samples):
     if samples:
         s_uniq = df.Sample.unique()
         samples = [x for x in samples if x in s_uniq]
@@ -184,6 +176,12 @@ def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
                  "directory is not empty and if using a PED file that your " +
                  "PED file and results directory contain at least one " +
                  "overlapping sample.")
+    return samples
+
+def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
+                  ymax=6, filters=False, chrom=None, het_vcf=None,
+                  window_length=1e5):
+    samples = check_samples_in_df(df, samples)
     vreader = VcfReader(vcf)
     if chrom is not None:
         vreader.set_region(chrom=chrom)
@@ -322,6 +320,7 @@ def sample_order_from_ped(pedfile):
 
 def get_options():
     parser = argparse.ArgumentParser(description='Plot Canvas CNV results.')
+    reg_group = parser.add_mutually_exclusive_group()
     parser.add_argument("-r", "--results_directories", nargs='+', required=True,
                         help='''Results directory from a Canvas run. This
                         program requires the 'VisualizationTemp...' directories
@@ -344,8 +343,11 @@ def get_options():
                         CNV.vcf.gz file in the results directory) rather than
                         whole chromosomes. Use --vcf argument to use a
                         different VCF file.''')
-    parser.add_argument("--vcfs", nargs='+', help='''Output variant regions in
-                        this/these VCF file(s).''')
+    reg_group.add_argument("--vcfs", nargs='+', help='''Output variant regions
+                           in this/these VCF file(s).''')
+    reg_group.add_argument("--regions", nargs='+', help='''Output these
+                           regions. Each region should be in the format
+                           "chr1:1000000-2000000".''')
     parser.add_argument("-b", "--build", default='hg38',
                         help='''Genome build for plotting cytobands. A
                         cytoBandIdeo.txt.gz (as downloaded from
@@ -375,7 +377,7 @@ def get_options():
 
 def process_data(results_directories, output_directory, cyto, samples,
                  variants, vcfs, pass_filters, dq, fig_dimensions, context,
-                 ymax, chrom=None, het_vcf=None):
+                 ymax, chrom=None, het_vcf=None, regions=[]):
     df = pd.DataFrame()
     for results_directory in results_directories:
         df = pd.concat((df, read_coverage(results_directory, samples, chrom)))
@@ -388,10 +390,48 @@ def process_data(results_directories, output_directory, cyto, samples,
                           samples=samples, ideo=cyto, ymax=ymax, dq=dq,
                           fig_dimensions=fig_dimensions, chrom=chrom,
                           het_vcf=het_vcf)
+    elif regions:
+        process_regions(regions, df=df, outdir=output_directory, ideo=cyto,
+                        samples=samples, ymax=ymax,
+                        fig_dimensions=fig_dimensions, het_vcf=het_vcf)
     else:
         plot_chromosomes(df=df, outdir=output_directory, ideo=cyto,
                          samples=samples, fig_dimensions=fig_dimensions,
                          ymax=ymax, het_vcf=het_vcf)
+
+
+def process_regions(regions, df, outdir, samples, ymax, fig_dimensions,
+                    het_vcf, ideo=None, window_length=1e5):
+    samples = check_samples_in_df(df, samples)
+    intervals = []
+    for region in regions:
+        match = reg_matcher.match(region)
+        if not match:
+            logger.warn("Skipping invalid region: {}".format(region))
+            continue
+        chrom = match.group(1)
+        start = int(match.group(3))
+        end = int(match.group(4))
+        intervals.append((chrom, start, end))
+    intervals.sort(key=operator.itemgetter(0, 1, 2))
+    prev_chrom = None
+    het_df = None
+    for region in intervals:
+        if prev_chrom is None or region[0] != prev_chrom:
+            chr_df = df[df.Chrom == region[0]]
+            chr_ideo = ideo[(ideo.chrom == region[0])]
+            if het_vcf is not None:
+                logger.info("Getting heterzoygosity counts for chromosome " +
+                            "{}".format(region[0]))
+                gt_counts = het_counts.get_gt_counts(het_vcf, samples,
+                                                     region[0],
+                                                     logger=logger, plot=False)
+                het_df = het_counts.counts_to_df(gt_counts, window_length)
+        region_name = "{}_{}_{}".format(region[0], region[1], region[2])
+        plot_region(df=chr_df, chrom=region[0], start=region[1], end=region[2],
+                    outdir=outdir, ideo=ideo, samples=samples,
+                    name=region_name, ymax=ymax, fig_dimensions=fig_dimensions,
+                    het_df=het_df)
 
 def get_chroms(results_dirs):
     logger.info("Checking chromosomes in coverage files...")
@@ -429,7 +469,7 @@ def get_chroms(results_dirs):
 
 def main(results_directories, output_directory, ped=None, variants=False,
          vcfs=[], pass_filters=False, dq=None, zygosity=None, height=18,
-         width=12, context='paper', build='hg38', ymax=6.0,
+         width=12, context='paper', build='hg38', ymax=6.0, regions=[],
          separate_chromosomes=False):
     if os.path.exists(output_directory):
         logger.info("Using existing directory '{}'".format(output_directory))
@@ -457,7 +497,8 @@ def main(results_directories, output_directory, ped=None, variants=False,
                              context=context,
                              ymax=ymax,
                              het_vcf=zygosity,
-                             chrom=c)
+                             chrom=c,
+                             regions=regions)
     else:
         process_data(results_directories=results_directories,
                      output_directory=output_directory,
@@ -470,7 +511,8 @@ def main(results_directories, output_directory, ped=None, variants=False,
                      fig_dimensions=fig_dimensions,
                      context=context,
                      ymax=ymax,
-                     het_vcf=zygosity)
+                     het_vcf=zygosity,
+                     regions=regions)
 
 if __name__ == '__main__':
     argparser = get_options()

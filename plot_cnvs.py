@@ -290,7 +290,7 @@ def plot_region(df, chrom, start, end, outdir, ideo, samples, fig_dimensions,
             axes[row + 1].axes.set_xlim((start, end))
             axes[row + 1].axes.set_ylabel('Het', rotation='horizontal',
                                           ha='right')
-            axes[row].axes.set_ylim((-0.5, 1.0))
+            axes[row + 1].axes.set_ylim((-0.5, 1.0))
         i += 1
         if row == len(samples) * pan_per_sample:#add label for bottom plot
             axes[row].axes.set_xlabel('Pos')

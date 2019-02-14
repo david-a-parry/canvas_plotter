@@ -146,3 +146,11 @@ optional arguments:
                         worth of data at a time (resulting in longer
                         runtimes).
 ~~~~
+
+## Author
+
+Written by David A. Parry david.parry@ed.ac.uk
+
+If you find this useful please let me know
+
+

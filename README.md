@@ -46,7 +46,7 @@ If you have affected individuals and unaffected individuals you can specify a
 PED file to ensure affecteds are plotted on top of unaffecteds:
 
     canvas_plotter/plot_cnvs.py \
-        --ped /path/to/family.ped
+        --ped /path/to/family.ped \
         -r /path/to/canvas/results/ \
         -o output_directory
 

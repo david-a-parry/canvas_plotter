@@ -78,7 +78,14 @@ To plot SVs/CNVs called in another VCF:
         -r /path/to/canvas/results/ \
         -o output_directory
 
-See below for full usage. 
+It is assumed that your data is from hg38 and cytobands will be drawn
+accordingly. If your data is from another genome build, specify it with the
+--build option. If you create a canvas_plotter/data/<genome> directory for your
+genome and download the appropriate cytoBandIdeo.txt.gz from the 
+[UCSC genome browser](http://genome.ucsc.edu) to this directory the script will
+draw cytobands, if this file does not exist no cytobands will be drawn.
+
+See below for full usage.
 
 ## Usage
 

@@ -194,7 +194,10 @@ def plot_variants(df, vcf, outdir, samples, ideo, fig_dimensions, dq=None,
         if filters and record.FILTER != 'PASS':
             continue
         (start, end) = get_region_from_record(record)
-        alt = record.ALT.replace("<", "").replace(">", "")
+        if 'SVTYPE' in  record.INFO_FIELDS:
+            alt = record.INFO_FIELDS['SVTYPE'] 
+        else:
+            alt = record.ALT.replace("<", "").replace(">", "")
         if dq is not None:
             gts = record.parsed_gts(fields=['DQ'])
             dqs = [x for x in gts['DQ'].values() if x is not None and x >= dq]
@@ -254,8 +257,14 @@ def plot_region(df, chrom, start, end, outdir, ideo, samples, fig_dimensions,
     for s in samples:
         row = i * pan_per_sample + 1
         tmp_df = reg_df[reg_df.Sample == s]
-        alpha = min(50000.0/len(tmp_df), 0.5)
-        size = min(10000.0/len(tmp_df), 100)
+        try:
+            alpha = min(50000.0/len(tmp_df), 0.5)
+        except ZeroDivisionError:
+            alpha = 0.5
+        try:
+            size = min(10000.0/len(tmp_df), 100)
+        except ZeroDivisionError:
+            size = 100
         axes[row].scatter(tmp_df.Start, tmp_df.Ploidy, color=cols[i],
                             alpha=alpha, s=[size] * len(tmp_df))
         axes[row].plot([start, end],

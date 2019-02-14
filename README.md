@@ -1,4 +1,3 @@
-
 # Canvas Plotter
 
 Plots CNV data from [Canvas](https://github.com/Illumina/canvas) output.
@@ -17,6 +16,10 @@ pip3 and git:
     pip3 install git+git://github.com/gantzgraf/vase.git --user
 
 Full installation instructions for vase are on the [vase github page](https://github.com/gantzgraf/vase.git)
+
+Also required are matplotlib, pandas and seaborn, all installable via pip3:
+
+    pip3 install matplotlib pandas seaborn
 
 ### Installation
 

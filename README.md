@@ -19,7 +19,7 @@ Full installation instructions for vase are on the [vase github page](https://gi
 
 Also required are matplotlib, pandas and seaborn, all installable via pip3:
 
-    pip3 install matplotlib pandas seaborn
+    pip3 install matplotlib pandas seaborn --user
 
 ### Installation
 

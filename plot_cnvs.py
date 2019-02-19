@@ -27,7 +27,7 @@ formatter = logging.Formatter(
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
-reg_matcher = re.compile(r'''^((chr)?\S):(\d+)-(\d+)$''')
+reg_matcher = re.compile(r'''^((chr)?\S+):(\d+)-(\d+)$''')
 
 def get_cytobands(build):
     refdir = os.path.join(os.path.dirname(__file__), 'data', build)

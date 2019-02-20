@@ -137,7 +137,7 @@ def plot_chromosomes(df, outdir, ideo, samples, fig_dimensions, ymax=6,
                 axes[row + 1].axis('tight')
                 axes[row + 1].axes.set_xlim((0, max(chr_df.End)))
                 axes[row + 1].axes.set_ylabel('Fraction Heterozygosity')
-                axes[row].axes.set_ylim((-0.5, 1.0))
+                axes[row + 1].axes.set_ylim((-0.5, 1.0))
             if row == len(samples) * pan_per_sample:#add label for bottom plot
                 axes[row].axes.set_xlabel('Pos')
                 #make the position labels a bit prettier
@@ -279,7 +279,7 @@ def plot_region(df, chrom, start, end, outdir, ideo, samples, fig_dimensions,
                              color='red',
                              alpha=0.8)
         axes[row].axes.set_xlim((start, end))
-        axes[row].axes.set_ylim((-0.5, ymax))
+        axes[row].axes.set_ylim((-0.4, ymax))
         axes[row].axes.set_title(s)
         axes[row].axes.set_ylabel('CN', rotation='horizontal', ha='right')
         if het_df is not None:

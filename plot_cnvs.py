@@ -34,8 +34,9 @@ def get_cytobands(build):
     cyto_file = os.path.join(refdir, 'cytoBandIdeo.txt.gz')
     if os.path.exists(cyto_file):
         logger.info("Reading cytoband information for {} genome".format(build))
-        ideo = pd.read_table(
+        ideo = pd.read_csv(
             cyto_file,
+            sep='\t',
             names=['chrom', 'start', 'end', 'name', 'gieStain'])
         ideo['width'] = ideo.end - ideo.start
         color_lookup = {
@@ -75,7 +76,9 @@ def read_coverage(results_dir, samples=None, chrom=None):
                 sys.exit("ERROR: No coverage.bedgraph file in " +
                          "{}".format(vis_tmp))
         logger.info("Reading {}".format(f))
-        temp_df = pd.read_table(f, names=('Chrom', 'Start', 'End', 'Ploidy'))
+        temp_df = pd.read_csv(f,
+                              sep='\t',
+                              names=('Chrom', 'Start', 'End', 'Ploidy'))
         if chrom:
             temp_df = temp_df[temp_df.Chrom == chrom]
         temp_df['Sample'] = sample
